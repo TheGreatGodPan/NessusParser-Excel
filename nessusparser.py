@@ -984,12 +984,25 @@ def begin_parsing():  # pylint: disable=c-extension-no-member
     add_plugin_info(UNIQUE_PLUGIN_NAME)
     add_overview_data(SEVERITY_TOTALS, count_ip_seen)
 
-
+# Changes Start
 if __name__ == "__main__":
+    # Print script information in bold
     ColorPrint.print_bold(SCRIPT_INFO)
 
-    FILE_COUNT = len([name for name in os.listdir(
-        ARGS.launch_directory) if name.endswith('.nessus')])
+    launch_directory = ARGS.launch_directory
+    # Check if the path is a file
+    if os.path.isfile(launch_directory):
+        # If it's a file, use the directory of that file
+        launch_directory = os.path.dirname(launch_directory)
+        TO_BE_PARSED = [ARGS.launch_directory]  # Directly add the file to the list
+    elif os.path.isdir(launch_directory):
+        # If it's a directory, list all .nessus files
+        TO_BE_PARSED = [os.path.join(launch_directory, name) for name in os.listdir(launch_directory) if name.endswith('.nessus')]
+    else:
+        print(f"Invalid directory or file path: {launch_directory}")
+        sys.exit()
+
+    FILE_COUNT = len(TO_BE_PARSED)
     REPORT_NAME = ARGS.output_file
 
     if FILE_COUNT == 0:
@@ -997,87 +1010,76 @@ if __name__ == "__main__":
         sys.exit()
     elif FILE_COUNT > 25:
         USER_RESPONSE = input(
-            '\x1b[1;33mFolder contains 25+ Nessus files. Continue? [y/n]: \x1b[0m')[0].lower()
+            '\x1b[1;33mFolder contains 25+ Nessus files. Continue? [y/n]: \x1b[0m').strip().lower()
         if USER_RESPONSE != 'y':
             sys.exit()
 
+    # Process ignore IDs from command line argument
     if ARGS.ignore_id:
         try:
-            for nessus_id in ARGS.ignore_id.split(","):
-                if re.sub(r'\s+', '', nessus_id) not in IGNORED_IDS:
-                    IGNORED_IDS.append(re.sub(r'\s+', '', nessus_id))
-        except:
-            ColorPrint.print_fail("Error reading Ignore Plugin Id's " +
-                                  "please ensure format is: 12345,23455,42342,23423")
+            IGNORED_IDS.extend(
+                re.sub(r'\s+', '', nessus_id) for nessus_id in ARGS.ignore_id.split(",")
+                if re.sub(r'\s+', '', nessus_id) not in IGNORED_IDS
+            )
+        except Exception as e:
+            ColorPrint.print_fail(f"Error reading Ignore Plugin Id's: {e}. Please ensure format is: 12345,23455,42342,23423")
             sys.exit()
+
+    # Process ignore IDs from file
     if ARGS.ignore_id_file:
         try:
             with open(ARGS.ignore_id_file) as fp:
-                for cnt, line in enumerate(fp):
-                    if re.sub(r'\s+', '', line) not in IGNORED_IDS:
-                        IGNORED_IDS.append(re.sub(r'\s+', '', line))
-        except:
-            ColorPrint.print_fail("Error reading Ignore Plugin Id's fle" +
-                                  "please ensure format is on ID per line")
+                IGNORED_IDS.extend(
+                    re.sub(r'\s+', '', line) for line in fp
+                    if re.sub(r'\s+', '', line) not in IGNORED_IDS
+                )
+        except Exception as e:
+            ColorPrint.print_fail(f"Error reading Ignore Plugin Id's file: {e}. Please ensure format is one ID per line")
             sys.exit()
-    if os.path.isfile("{0}.xlsx".format(ARGS.output_file)):
-        REPORT_NAME = "{0}_{1}".format(ARGS.output_file, f("{datetime.now():%Y-%m-%d-%S-%s}"))
-        ColorPrint.print_warn("\nExisting report detected. Report will be saved as {0}.xlsx".format(
-            REPORT_NAME))
 
-    WB = xlsxwriter.Workbook(
-        '{0}.xlsx'.format(REPORT_NAME), {'strings_to_urls': False, 'constant_memory': True})
+    # Handle existing report files
+    output_file_path = f"{ARGS.output_file}.xlsx"
+    if os.path.isfile(output_file_path):
+        timestamp = datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
+        REPORT_NAME = f"{ARGS.output_file}_{timestamp}"
+        ColorPrint.print_warn(f"\nExisting report detected. Report will be saved as {REPORT_NAME}.xlsx")
+
+    # Set up the Excel workbook and formats
+    WB = xlsxwriter.Workbook(output_file_path, {'strings_to_urls': False, 'constant_memory': True})
     CENTER_BORDER_FORMAT = WB.add_format(
-        {'bg_color': '#1D365A',
-         'font_color': 'white',
-         'bold': True,
-         'italic': True,
-         'border': True})
-    WRAP_TEXT_FORMAT = WB.add_format(
-        {'border': True})
-    NUMBER_FORMAT = WB.add_format(
-        {'border': True, 'num_format': '0'})
+        {'bg_color': '#1D365A', 'font_color': 'white', 'bold': True, 'italic': True, 'border': True}
+    )
+    WRAP_TEXT_FORMAT = WB.add_format({'border': True})
+    NUMBER_FORMAT = WB.add_format({'border': True, 'num_format': '0'})
     DARK_FORMAT = WB.add_format(
-        {'bg_color': '#1D365A',
-         'font_color': 'white',
-         'font_size': 22,
-         'bold': 1,
-         'border': 1,
-         'align': 'center',
-         'valign': 'vcenter'})
+        {'bg_color': '#1D365A', 'font_color': 'white', 'font_size': 22, 'bold': True, 'border': True, 'align': 'center', 'valign': 'vcenter'}
+    )
     SM_DARK_FORMAT = WB.add_format(
-        {'bg_color': '#1D365A',
-         'font_color': 'white',
-         'font_size': 12,
-         'bold': 1,
-         'border': 1})
+        {'bg_color': '#1D365A', 'font_color': 'white', 'font_size': 12, 'bold': True, 'border': True}
+    )
     LIGHT_FORMAT = WB.add_format(
-        {'bg_color': '#9AB3D4',
-         'font_color': 'black',
-         'font_size': 12,
-         'border': 1,
-         'align': 'left',
-         'valign': 'top'})
+        {'bg_color': '#9AB3D4', 'font_color': 'black', 'font_size': 12, 'border': True, 'align': 'left', 'valign': 'top'}
+    )
 
+    # Calculate maximum expected memory usage
     MAX_EXPECTED_MEMORY_USAGE = 0
-    for nessus_report in os.listdir(ARGS.launch_directory):
-        if nessus_report.endswith(".nessus") or nessus_report.endswith(".xml"):
-            TO_BE_PARSED.append(os.path.join(
-                ARGS.launch_directory, nessus_report))
-            FILE_SIZE = (os.path.getsize(
-                TO_BE_PARSED[-1]) >> 20) * 2
-            if FILE_SIZE > MAX_EXPECTED_MEMORY_USAGE:
-                MAX_EXPECTED_MEMORY_USAGE = FILE_SIZE
+    for file_path in TO_BE_PARSED:
+        FILE_SIZE_MB = (os.path.getsize(file_path) >> 20) * 2
+        MAX_EXPECTED_MEMORY_USAGE = max(MAX_EXPECTED_MEMORY_USAGE, FILE_SIZE_MB)
 
-    ColorPrint.print_warn(
-        "\n*** Max expected memory usage {0} MB ***".format(MAX_EXPECTED_MEMORY_USAGE))
+    ColorPrint.print_warn(f"\n*** Max expected memory usage {MAX_EXPECTED_MEMORY_USAGE} MB ***")
 
     if IGNORED_IDS:
-        ColorPrint.print_warn(
-            "\nIgnoring {0} Plugin ID's".format(len(IGNORED_IDS)))
+        ColorPrint.print_warn(f"\nIgnoring {len(IGNORED_IDS)} Plugin ID's")
+
+    # Call functions to generate worksheets and begin parsing
     generate_worksheets()
     begin_parsing()
+
+    # Close the workbook
     WB.close()
 
-    ColorPrint.print_pass(
-        "\nReport has been saved as {0}.xlsx".format(REPORT_NAME))
+    # Confirm report save
+    ColorPrint.print_pass(f"\nReport has been saved as {REPORT_NAME}.xlsx")
+
+
